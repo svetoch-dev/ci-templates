@@ -1,0 +1,109 @@
+name: Build
+on:
+  workflow_call:
+    inputs:
+      registry:
+        description: Artifact or container registry hostname
+        type: string
+        required: true
+      runner:
+        description: Runner name
+        type: string
+        required: true
+      image:
+        description: Image url in registry without a tag
+        type: string
+        required: true
+      kaniko_image:
+        description: Container image that provides the Kaniko executor
+        type: string
+        required: true
+      context:
+        description: Kaniko source context in repository-url#ref#commit format
+        type: string
+        required: true
+      image_tag:
+        description: Tag identifying the source revision
+        type: string
+        required: true
+      git_username:
+        description: Username for authenticating to the source Git repository
+        type: string
+        required: false
+        default: ''
+      dockerfile:
+        description: Path to Dockerfile
+        type: string
+        required: false
+        default: './Dockerfile'
+      services:
+        description: JSON array of services; each name adds an image suffix and sets the SERVICE build argument
+        type: string
+        required: false
+        default: '[""]'
+      cache:
+        description: Enable Kaniko cache
+        type: boolean
+        required: false
+        default: true
+      push_retry:
+        description: Number of retries for pushing an image
+        type: number
+        required: false
+        default: 5
+      args:
+        description: Additional Kaniko flags separated by whitespace; values must not contain whitespace
+        type: string
+        required: false
+        default: ''
+    secrets:
+      source_token:
+        required: false
+      npm_token:
+        required: false
+
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    container:
+      image: '${{ inputs.kaniko_image }}'
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(inputs.services) }}
+    steps:
+      - name: Configure registry credentials
+        env:
+          REGISTRY: ${{ inputs.registry }}
+        run: |
+          case "$REGISTRY" in
+            *.pkg.dev) docker-credential-gcr configure-docker --registries="$REGISTRY" ;;
+          esac
+      - name: Build and push container
+        env:
+          CACHE: ${{ inputs.cache }}
+          PUSH_RETRY: ${{ inputs.push_retry }}
+          KANIKO_ARGS: ${{ inputs.args }}
+          IMAGE: ${{ inputs.image }}${{ matrix.service != '' && format('-{0}', matrix.service) || '' }}
+          SERVICE: ${{ matrix.service }}
+          NPM_TOKEN: ${{ secrets.npm_token }}
+          DOCKERFILE: ${{ inputs.dockerfile }}
+          BUILD_CONTEXT: ${{ inputs.context }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          GIT_USERNAME: ${{ inputs.git_username }}
+          GIT_PASSWORD: ${{ secrets.source_token }}
+        shell: sh
+        run: |
+          set -euf
+          exec /kaniko/executor \
+            --dockerfile="$DOCKERFILE" \
+            --context="$BUILD_CONTEXT" \
+            --destination="$IMAGE:$IMAGE_TAG" \
+            --destination="$IMAGE:latest" \
+            --cache="$CACHE" \
+            --push-retry="$PUSH_RETRY" \
+            --build-arg="SERVICE=$SERVICE" \
+            --build-arg="NPM_TOKEN=$NPM_TOKEN" \
+            $KANIKO_ARGS
