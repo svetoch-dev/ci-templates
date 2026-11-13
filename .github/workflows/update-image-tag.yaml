@@ -8,7 +8,7 @@ on:
         type: string
         required: true
       ci_image:
-        description: Container image providing Git and yq
+        description: Container image providing ci-update-image-tag.sh, Git, OpenSSH, and yq
         type: string
         required: true
       runner:
@@ -26,14 +26,6 @@ on:
         required: true
       image_tag:
         description: Image tag value to write to the values file
-        type: string
-        required: true
-      git_author_name:
-        description: Commit author name
-        type: string
-        required: true
-      git_author_email:
-        description: Commit author email
         type: string
         required: true
       tag_path:
@@ -64,20 +56,9 @@ jobs:
           VALUES_FILE: ${{ inputs.values_file }}
           TAG_PATH: ${{ inputs.tag_path }}
           IMAGE_TAG: ${{ inputs.image_tag }}
-          GIT_AUTHOR_NAME: ${{ inputs.git_author_name }}
-          GIT_AUTHOR_EMAIL: ${{ inputs.git_author_email }}
-          GIT_COMMITTER_NAME: ${{ inputs.git_author_name }}
-          GIT_COMMITTER_EMAIL: ${{ inputs.git_author_email }}
+          GIT_AUTHOR_NAME: ci
+          GIT_AUTHOR_EMAIL: ci@svetoch.dev
+          GIT_COMMITTER_NAME: ci
+          GIT_COMMITTER_EMAIL: ci@svetoch.dev
         shell: sh
-        run: |
-          set -eu
-          git clone --branch "$INFRA_BRANCH" --single-branch "$INFRA_REPO_URL" "$INFRA_WORKDIR"
-          cd "$INFRA_WORKDIR"
-          yq -i "$TAG_PATH = strenv(IMAGE_TAG)" "$VALUES_FILE"
-          git add "$VALUES_FILE"
-          if git diff --cached --quiet; then
-            exit 0
-          fi
-          git commit -m "CI/CD: update image tag"
-          git pull --rebase origin "$INFRA_BRANCH"
-          git push origin "$INFRA_BRANCH"
+        run: ci-update-image-tag.sh

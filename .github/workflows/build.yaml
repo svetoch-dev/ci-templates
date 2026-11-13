@@ -36,11 +36,6 @@ on:
         type: string
         required: false
         default: './Dockerfile'
-      services:
-        description: JSON array of services; each name adds an image suffix and sets the SERVICE build argument
-        type: string
-        required: false
-        default: '[""]'
       cache:
         description: Enable Kaniko cache
         type: boolean
@@ -59,7 +54,8 @@ on:
     secrets:
       source_token:
         required: false
-      npm_token:
+      secret_build_args:
+        description: Secret build arguments as NAME=value lines; values must not contain newlines
         required: false
 
 permissions:
@@ -69,10 +65,6 @@ jobs:
     runs-on: ${{ inputs.runner }}
     container:
       image: '${{ inputs.kaniko_image }}'
-    strategy:
-      fail-fast: false
-      matrix:
-        service: ${{ fromJSON(inputs.services) }}
     steps:
       - name: Configure registry credentials
         env:
@@ -86,9 +78,8 @@ jobs:
           CACHE: ${{ inputs.cache }}
           PUSH_RETRY: ${{ inputs.push_retry }}
           KANIKO_ARGS: ${{ inputs.args }}
-          IMAGE: ${{ inputs.image }}${{ matrix.service != '' && format('-{0}', matrix.service) || '' }}
-          SERVICE: ${{ matrix.service }}
-          NPM_TOKEN: ${{ secrets.npm_token }}
+          IMAGE: ${{ inputs.image }}
+          SECRET_BUILD_ARGS: ${{ secrets.secret_build_args }}
           DOCKERFILE: ${{ inputs.dockerfile }}
           BUILD_CONTEXT: ${{ inputs.context }}
           IMAGE_TAG: ${{ inputs.image_tag }}
@@ -97,6 +88,12 @@ jobs:
         shell: sh
         run: |
           set -euf
+          set --
+          while IFS= read -r arg || [ -n "$arg" ]; do
+            [ -z "$arg" ] || set -- "$@" "--build-arg=$arg"
+          done <<EOF
+          $SECRET_BUILD_ARGS
+          EOF
           exec /kaniko/executor \
             --dockerfile="$DOCKERFILE" \
             --context="$BUILD_CONTEXT" \
@@ -104,6 +101,5 @@ jobs:
             --destination="$IMAGE:latest" \
             --cache="$CACHE" \
             --push-retry="$PUSH_RETRY" \
-            --build-arg="SERVICE=$SERVICE" \
-            --build-arg="NPM_TOKEN=$NPM_TOKEN" \
+            "$@" \
             $KANIKO_ARGS
